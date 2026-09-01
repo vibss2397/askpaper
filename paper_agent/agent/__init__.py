@@ -1,0 +1,2 @@
+class PaperAgentError(Exception):
+    pass

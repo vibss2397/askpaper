@@ -1,0 +1,1 @@
+Use @outputs.md and @phase-plan.md to evaluate where in the phase plan this project is in. After that for the next phase of the project, provide a concise description of what needs to happen, what are the different steps needed to implement it.
