@@ -1,4 +1,4 @@
-# paper-agent
+# askpaper
 
 Interactive research paper agent — ask questions, build knowledge, compound insights.
 
