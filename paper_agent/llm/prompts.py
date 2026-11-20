@@ -172,22 +172,27 @@ def build_summarize_prompt(paper_title: str, qa_pairs: list[dict]) -> str:
 
 
 SYNTHESIZE_SYSTEM_PROMPT = (
-    "You are a research assistant. Your task is to find connections between "
+    "You are a research assistant. Your task is to judge connections between "
     "insights the user derived from reading multiple papers. You are NOT "
     "comparing papers — you are comparing what the user learned from them "
-    "through their Q&A history."
+    "through their Q&A history. You must return a verdict for EVERY paper "
+    "you are asked about — an empty or partial verdict list is not a valid "
+    "answer."
 )
 
-SYNTHESIS_SCHEMA = {
+SYNTHESIS_VERDICTS_SCHEMA = {
     "type": "object",
     "properties": {
-        "connections": {
+        "verdicts": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
-                    "paper_a": {"type": "string"},
-                    "paper_b": {"type": "string"},
+                    "other_paper": {
+                        "type": "string",
+                        "description": "The paper title exactly as given in the task.",
+                    },
+                    "related": {"type": "boolean"},
                     "relationship": {
                         "type": "string",
                         "enum": [
@@ -195,66 +200,107 @@ SYNTHESIS_SCHEMA = {
                             "contradicts",
                             "shares_method",
                             "shares_finding",
+                            "unrelated",
                         ],
                     },
                     "insight": {
                         "type": "string",
                         "description": (
-                            "1-2 sentences. Explain the connection, "
-                            "grounded in the specific themes/takeaways "
-                            "from the summaries."
+                            "When related: 1-2 sentences explaining the "
+                            "connection, grounded in the specific "
+                            "themes/takeaways from the summaries. When "
+                            "unrelated: one brief sentence on why they "
+                            "don't connect."
                         ),
                     },
                 },
-                "required": ["paper_a", "paper_b", "relationship", "insight"],
+                "required": [
+                    "other_paper",
+                    "related",
+                    "relationship",
+                    "insight",
+                ],
             },
         },
-        "overall_synthesis": {
-            "type": "string",
-            "description": (
-                "1-3 sentences on the meta-insight across all papers. "
-                "If no connections found, say 'No significant cross-paper "
-                "connections found.'"
-            ),
-        },
     },
-    "required": ["connections", "overall_synthesis"],
+    "required": ["verdicts"],
 }
 
 
-def build_synthesize_prompt(summaries: list[dict]) -> str:
-    sections = ["## Paper Summaries"]
+def _summary_bullets(s: dict) -> str:
+    parts = []
+    for theme in s.get("themes", []):
+        parts.append(f"- **{theme['name']}**: {theme['learned']} ({theme['so_what']})")
+    if s.get("biggest_takeaway"):
+        parts.append(f"**Biggest takeaway:** {s['biggest_takeaway']}")
+    return "\n".join(parts)
 
-    for s in summaries:
-        parts = [f"### Paper {s['index']}: {s['title']}"]
 
-        for theme in s.get("themes", []):
-            parts.append(f"- **{theme['name']}**: {theme['learned']} ({theme['so_what']})")
+def build_synthesize_pairwise_prompt(focus: dict, others: list[dict]) -> str:
+    sections = [f"## Focus paper: {focus['title']}", _summary_bullets(focus)]
 
-        if s.get("biggest_takeaway"):
-            parts.append(f"**Biggest takeaway:** {s['biggest_takeaway']}")
-
-        sections.append("\n".join(parts))
+    sections.append("## Other papers")
+    for s in others:
+        sections.append(f"### {s['title']}\n{_summary_bullets(s)}")
 
     sections.append("## Your task")
     sections.append(
-        "Find connections between the insights the user derived from these papers. "
-        "Only describe connections that genuinely exist — do not evaluate every pair. "
-        "If few or no connections exist, return an empty connections array.\n\n"
-        "For each connection:\n"
-        "- paper_a / paper_b: the paper titles as given above\n"
+        "Judge whether the focus paper's insights connect with EACH of the "
+        f"{len(others)} other papers above. Return exactly {len(others)} "
+        "verdicts — one per other paper, matched by its exact title.\n\n"
+        "For each verdict:\n"
+        "- other_paper: the paper title exactly as given above\n"
+        "- related: true if the user's insights genuinely connect, else false\n"
         "- relationship: how they connect\n"
         "  - builds_on: insights from one extend/deepen insights from another\n"
         "  - contradicts: insights from one challenge/contradict insights from another\n"
         "  - shares_method: both papers use similar techniques the user explored\n"
         "  - shares_finding: both papers arrive at similar conclusions\n"
-        "- insight: 1-2 sentences. Reference the actual themes/takeaways. Be specific "
-        "— not \"both papers use attention\" but \"the user discovered multi-head is "
-        "parameter-free in Paper A, and Paper B's efficient routing confirms this "
-        "scales without cost.\"\n\n"
-        "Do not invent connections. Empty connections array is a valid output.\n\n"
-        "End with overall_synthesis: 1-3 sentences on the meta-insight across all "
-        "papers. If no connections, say \"No significant cross-paper connections found.\""
+        "  - unrelated: use this when related is false\n"
+        "- insight: when related, 1-2 sentences referencing the actual "
+        "themes/takeaways — not \"both papers use attention\" but \"the user "
+        "discovered multi-head is parameter-free in one paper, and the other's "
+        "efficient routing confirms this scales without cost.\" When "
+        "unrelated, one brief sentence on why they don't connect.\n\n"
+        "Do not invent connections, but do not lazily mark everything "
+        "unrelated — judge each pair on its merits."
+    )
+
+    return "\n\n".join(sections)
+
+
+OVERALL_SYNTHESIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "overall_synthesis": {
+            "type": "string",
+            "description": "1-3 sentences on the meta-insight across all papers.",
+        },
+    },
+    "required": ["overall_synthesis"],
+}
+
+
+def build_overall_synthesis_prompt(
+    summaries: list[dict], connections: list[dict]
+) -> str:
+    sections = ["## Papers"]
+    for s in summaries:
+        sections.append(f"### {s['title']}\n{_summary_bullets(s)}")
+
+    sections.append("## Confirmed connections")
+    for c in connections:
+        sections.append(
+            f"- **{c['paper_a']} ↔ {c['paper_b']}** ({c['relationship']}): "
+            f"{c['insight']}"
+        )
+
+    sections.append("## Your task")
+    sections.append(
+        "Write 1-3 sentences on the meta-insight across all these papers, "
+        "building on the confirmed connections. What is the user actually "
+        "learning across this body of reading? If the connections don't add "
+        "up to a bigger picture, say so honestly."
     )
 
     return "\n\n".join(sections)

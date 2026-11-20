@@ -81,6 +81,53 @@ def get_paper_metadata(space: str, paper_id: str) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def get_paper_summary(space: str, paper_id: str) -> dict | None:
+    """Structured summary + freshness metadata for a paper.
+
+    Reads the `summary.json` sidecar next to `summary.md`:
+    {summary, summarized_qa_count, summarized_at, model}. Falls back to
+    the legacy `summary` key in metadata.yaml (pre-9.5.4 vaults) with
+    freshness fields as None. Returns None when the paper was never
+    summarized.
+    """
+    import json
+
+    summary_json_path = get_paper_path(space, paper_id) / "summary.json"
+    if summary_json_path.exists():
+        try:
+            return json.loads(summary_json_path.read_text())
+        except (ValueError, OSError):
+            pass
+
+    legacy = get_paper_metadata(space, paper_id).get("summary")
+    if legacy:
+        return {
+            "summary": legacy,
+            "summarized_qa_count": None,
+            "summarized_at": None,
+            "model": None,
+        }
+    return None
+
+
+def is_summary_stale(space: str, paper_id: str) -> bool | None:
+    """True when Q&A was added since the summary was generated.
+
+    None when unknown (no summary, or a legacy summary with no
+    summarized_qa_count recorded).
+    """
+    data = get_paper_summary(space, paper_id)
+    if not data:
+        return None
+    summarized_count = data.get("summarized_qa_count")
+    if summarized_count is None:
+        return None
+
+    from .session.reader import get_qa_by_paper
+
+    return len(get_qa_by_paper(space, paper_id)) != summarized_count
+
+
 def purge_space(space: str) -> dict:
     space_path = get_spaces_dir() / space
     if not space_path.exists():
@@ -153,9 +200,10 @@ def regenerate_index(space: str) -> None:
 
             summary_path = space_path / "papers" / paper_id / "summary.md"
             if summary_path.exists():
+                stale_mark = " ⚠ stale" if is_summary_stale(space, paper_id) else ""
                 parts.append(
                     f"- [{title}](papers/{paper_id}/paper.md) — "
-                    f"[summary](papers/{paper_id}/summary.md){suffix}"
+                    f"[summary](papers/{paper_id}/summary.md){stale_mark}{suffix}"
                 )
             else:
                 parts.append(f"- [{title}](papers/{paper_id}/paper.md){suffix}")

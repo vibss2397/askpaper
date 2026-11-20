@@ -3,14 +3,23 @@
 ## Architecture (final state)
 
 ```
-Raycast ──▶ paper-agent daemon (HTTP/SSE) ──▶ ~/.paper-vault/ ──▶ Obsidian
-WhatsApp──▶        ├─ pdf ingestion                  │
-Claude  ──▶ MCP ──▶├─ LLM (OpenRouter — any model)   │
-                   ├─ spaces/sessions                │
-                   ├─ summaries/cross-paper          │
-                   ├─ search                         │
-                   └─ vault writer                   │
+PaperAgent.app (Swift menu-bar panel, ⌘⌃⇧A → ⌘⇧P at cutover) ──▶ paper-agent daemon (HTTP/SSE) ──▶ ~/.paper-vault/ ──▶ Obsidian
+Raycast (fallback until Phase 6 cutover, then unbound) ───────▶        ├─ pdf ingestion                  │
+WhatsApp──▶                                                            ├─ LLM (OpenRouter — any model)   │
+Claude  ──▶ MCP ──▶                                                    ├─ spaces/sessions                │
+                                                                       ├─ summaries/cross-paper          │
+                                                                       ├─ search                         │
+                                                                       └─ vault writer                   │
 ```
+
+> **UI rewrite status (Oct 2026):** the Raycast extension has been replaced as the primary UI by a
+> native Swift panel app — migration Phases 0–4 (daemon additions, web page, Swift skeleton,
+> hotkey/capture/handoff parity) are **complete and live-verified**; Raycast remains installed and
+> bound to ⌘⇧P as the safety net until the cutover. The migration's single source of truth is
+> `paper-agent-swift-app/migration_plan.md`; results + the agreed next-steps order (env key → Safari
+> selection capture → Zen decision → Phase 5 polish → Phase 6 cutover → 9.1/9.6 → Phases 10–14) are
+> in the "Swift Panel App Migration" section of `outputs.md`. Phase 5 below is now historical (its
+> UI is the fallback).
 
 ## Vault shape (target)
 
@@ -615,54 +624,126 @@ npx tsc --noEmit    ✓ 0 errors
 npm run build       ✓ 4 entry points compiled
 ```
 
-### Notes for next phase (Phase 9.5 + remaining Phase 9)
+### Notes for next phase (remaining Phase 9)
 
-- **Naming collision warning:** Phase 9.5 the PHASE = "Summary + Synthesis Polish" (temperature=0, synthesize retry, staleness tracking, JSON storage consistency) — still NOT started. Idea 9.5 inside Phase 9 = "Conversation continuity" — DONE. Don't conflate the two.
+- Phase 9.5 (Summary + Synthesis Polish) is DONE (see its section above).
 - Remaining Phase 9 items: 9.1 prompt tuning, 9.6 space control plane (design notes above)
 - Operational: daemon must be started from the project root (`.env` discovery via cwd); check `lsof -nP -iTCP:8765` for stale daemons when behavior seems stale
 - pymupdf4llm heading-mangling caveat affects section matching (see Key decisions)
-- ~10 test Q&A entries left in the research vault from verification
+- The research vault was rebuilt fresh during 9.5 verification (2 papers, seeded Q&A, real summaries/synthesis)
 
 ---
 
-## Phase 9.5: Summary + Synthesis Polish
+## Phase 9.5: Summary + Synthesis Polish ✅ Done
 
 **Goal:** Fix reliability and usability issues discovered while verifying Phase 7's summarize and synthesize endpoints. These are small fixes that make the knowledge compounding flow trustworthy before building on top of it.
 
 ### Issues found during Phase 7 verification
 
-| # | Issue | Severity | Root cause |
+| # | Issue | Severity | Resolution |
 |---|-------|----------|------------|
-| 1 | **Synthesize is non-deterministic** — same inputs produce different outputs across calls. Sometimes returns 0 connections, sometimes 2. | High | `generate_structured()` doesn't set `temperature`. Gemini Flash defaults to non-zero temperature, so structured output varies. Synthesize prompt explicitly allows empty connections array, so Gemini sometimes bails when uncertain. |
-| 2 | **Summaries silently overwritten** — re-running `summarize` on a paper overwrites `summary.md` + `metadata.yaml` summary field. No warning, no version history. | Low | By design — summary is a regenerable artifact. But if you summarized after 5 Q&A, then asked 10 more and re-summarized, the old summary is gone with no way to see how understanding evolved. |
-| 3 | **Inconsistent JSON storage** — `summarize` stores structured JSON in `metadata.yaml` under `summary` key. `synthesize` stores structured JSON in `summaries/synthesis.json` (separate file). Not broken, but inconsistent. | Low | Two different conventions were chosen during initial build. |
-| 4 | **No staleness tracking** — after summarizing, asking more questions about that paper makes the summary outdated. No flag indicates "this paper has new Q&A since last summary." | Medium | `metadata.yaml` stores the summary but not the Q&A count it was generated from. |
+| 1 | **Synthesize is non-deterministic** — same inputs produce different outputs across calls. Sometimes returns 0 connections, sometimes 2. | High | Fixed inherently (see 9.5.2 design below) — not with temperature/retry band-aids |
+| 2 | **Summaries silently overwritten** — no version history. | Low | Not addressed (regenerable artifact; optional 9.5.5 skipped) |
+| 3 | **Inconsistent JSON storage** — summary JSON in `metadata.yaml`, synthesis JSON in `summaries/synthesis.json`. | Low | Standardized on sidecar `.json` files (9.5.4) |
+| 4 | **No staleness tracking** — no flag indicates "this paper has new Q&A since last summary." | Medium | `summarized_qa_count` in `summary.json` + staleness surfaced everywhere (9.5.3) |
 
-### Fixes
+### What was built
 
-| Step | Fix | Issue(s) |
-|------|-----|----------|
-| 9.5.1 | Set `temperature=0` on `GenerateContentConfig` for all `generate_structured()` calls | #1 |
-| 9.5.2 | If synthesize returns empty connections, retry 1-2 times before declaring "no connections." Take the union of connections across retries (deduplicate by paper_a + paper_b + relationship). | #1 |
-| 9.5.3 | Store `summarized_qa_count` in `metadata.yaml` alongside the summary. API response and `index.md` can show whether a summary is stale (current Q&A count ≠ summarized Q&A count). | #4 |
-| 9.5.4 | Pick one JSON storage convention: either both use sidecar `.json` files (`summary.json`, `synthesis.json`), or both store in `metadata.yaml`. Apply consistently. | #3 |
-| 9.5.5 | (Optional) Keep previous summary as `summary-previous.md` when re-summarizing, or add a `--keep-history` flag. Low priority — only matters if tracking understanding evolution becomes valuable. | #2 |
+```
+paper_agent/
+  llm/
+    base.py               # +reasoning_effort param — passed to every completions call as
+                          #   OpenRouter extra_body {"reasoning": {"enabled": true, "effort": ...}}
+                          #   +aclose() — explicit client close
+                          #   +install_asyncgen_teardown_filter() — loop exception handler that
+                          #   downgrades the httpcore2 asyncgen finalization noise (root-caused,
+                          #   see Key decisions); installed automatically by LLMClient.__init__
+    __init__.py           # +get_structured_client() — factory for structured-call clients;
+                          #   shared _build_client() helper
+  config.py               # +get_structured_llm_settings() — structured_model /
+                          #   structured_provider / structured_reasoning_effort config.yaml keys
+                          #   (all fall back to the main model / reasoning_effort);
+                          #   get_llm_settings() also returns reasoning_effort;
+                          #   DEFAULT_MODEL = openai/gpt-5.6-luna; _infer_provider() extracted
+  agent/
+    synthesize.py         # REWRITE: one-vs-rest verdict design (see below)
+    summarize.py          # +summary.json sidecar {summary, summarized_qa_count, summarized_at,
+                          #   model}; metadata.yaml goes back to purely descriptive (legacy
+                          #   `summary` key popped on re-summarize); uses structured client
+    ask.py                # closes the LLM client after streaming (finally: aclose())
+    knowledge.py          # reads summaries via vault.get_paper_summary() (sidecar + legacy
+                          #   fallback); uses structured client
+  session/writer.py       # _generate_slug closes its client too
+  llm/prompts.py          # SYNTHESIS_SCHEMA/build_synthesize_prompt REPLACED by:
+                          #   SYNTHESIS_VERDICTS_SCHEMA + build_synthesize_pairwise_prompt()
+                          #   (forced per-pair verdicts) + OVERALL_SYNTHESIS_SCHEMA +
+                          #   build_overall_synthesis_prompt()
+  vault.py                # +get_paper_summary(space, paper_id) — reads summary.json sidecar,
+                          #   falls back to legacy metadata.yaml `summary` key (freshness = None);
+                          #   +is_summary_stale(space, paper_id) → bool | None;
+                          #   regenerate_index shows "⚠ stale" on stale summary links
+  api/server.py           # papers list + has_summary / summary_stale / qa_count /
+                          #   summarized_qa_count; summarize/synthesize/knowledge/open-questions
+                          #   key-check now uses structured settings
+  cli.py                  # status shows "(reasoning: …)" on the model line when configured
+~/.paper-vault/.paper-agent/config.yaml   # model: openai/gpt-5.6-luna, reasoning_effort: low —
+                          #   ONE model for everything (structured_* keys supported but unused)
+```
 
-### Verify
+### Key decisions
 
-```bash
-# Determinism — run synthesize 3 times, should get consistent (or near-consistent) results
-paper-agent synthesize --space research
-paper-agent synthesize --space research
-paper-agent synthesize --space research
-# → Same connection count each time (or union of retries)
+- **9.5.1 — no temperature=0; one model for everything.** Instead of pinning temperature, structured calls (summarize, synthesize, knowledge, open-questions) route to a dedicated **structured client** — configured via `structured_model` / `structured_reasoning_effort` in config.yaml, falling back to the main `model` / `reasoning_effort`. Determinism comes from the forced-verdict schemas + a reasoning model, not sampling knobs. After verification the split was collapsed: **everything (streaming ask included) now runs `openai/gpt-5.6-luna` at `reasoning: low`** — `DEFAULT_MODEL` is luna, and the vault config is just `model` + `reasoning_effort`. The structured_* keys remain supported for a future split if streaming answers ever need a different model.
+- **9.5.2 — one-vs-rest verdicts, not retry-union.** The old prompt was open-ended ("find connections across N papers; empty array is valid") — a lazy bail-out the model took randomly. Retry+union was rejected as a band-aid: with deterministic sampling it re-asks the same question, and it can't distinguish "no connections" from "model bailed". The inherent fix: **each paper runs against all remaining papers in ONE call** (paper i vs papers i+1..N — every pair judged exactly once, N-1 calls total), and the schema **forces a verdict for every other paper** (`related: bool` + relationship + insight; `unrelated` is an explicit relationship value). Emptiness is impossible by construction — "no connections" is now a verified negative, surfaced in `cross-paper-insights.md` as a "Judged Unrelated" section. A single retry remains only as a JSON-malformation safety net (`_verdicts_for`). A final call generates `overall_synthesis` from the confirmed connections; zero connections short-circuits to a canned honest string.
+- **9.5.3 — freshness lives with the summary.** `summary.json` records `summarized_qa_count`, `summarized_at`, and the model that wrote it. Staleness = current `get_qa_by_paper()` count ≠ `summarized_qa_count`, surfaced as: `summary_stale` in `GET /api/spaces/{name}/papers`, "⚠ stale" in `index.md`, and `is_summary_stale()` for any future consumer. Legacy summaries (embedded in metadata.yaml, no count) report staleness as unknown (None), not stale.
+- **9.5.4 — sidecar `.json` everywhere.** `papers/{slug}/summary.json` and `summaries/synthesis.json` are THE structured-storage locations; `metadata.yaml` is purely descriptive. Readers (`synthesize`, `knowledge`, `vault.get_paper_summary`) fall back to the legacy metadata.yaml `summary` key so pre-9.5.4 vaults keep working; re-summarizing migrates a paper automatically (legacy key popped).
+- **synthesis.json shape:** `{connections: [{paper_a, paper_b, relationship, insight}], unrelated: [same], overall_synthesis}` — the API response contract (`status`, `connections` count, `markdown`) is unchanged, so the Raycast extension needed no changes. 0-connection runs now return `status: ok` with `connections: 0` (a verified negative) instead of "skipped".
+- **Optional 9.5.5 (summary-previous.md) skipped** — summaries are regenerable artifacts; revisit only if tracking understanding evolution becomes valuable.
+- **Asyncgen teardown noise — root-caused and filtered, not suppressed blindly.** Streaming asks printed `RuntimeError: generator didn't stop after athrow()` tracebacks ("an error occurred during closing of asynchronous generator"). Minimal repro + generator inventory showed: openai 3.8's SSE loop `break`s on the `[DONE]` event without exhausting httpcore2's response-body generator chain — 10 orphaned generators stay suspended (openai `_iter_events`/`aiter_bytes` → httpx2 → httpcore2 `PoolByteStream.__aiter__`/`HTTP11ConnectionByteStream.__aiter__`/`_receive_response_body`/`safe_async_iterate`). When GC finalizes them, asyncio athrows GeneratorExit, and httpcore2's `except BaseException: await self.aclose(); raise exc` pattern inside nested async-context managers fails the asyncgen close protocol. Crucially there is **no leak**: openai's `finally: await response.aclose()` already released the connection (httpcore2's later aclose is a no-op, guarded by `_closed`) — the daemon showed zero per-request accumulation. `LLMClient.__init__` now installs a loop exception handler that matches exactly this failure (RuntimeError "generator didn't stop after athrow()") and logs it at debug, delegating everything else to the previous/default handler. Upstream-worthy (openai's break-on-[DONE] × httpcore2's close-intolerant generators); revisit when either library fixes it.
 
-# Staleness tracking
+### Verified
+
+```
+paper-agent status
+# → provider: openai
+# → model: openai/gpt-5.6-luna (reasoning: low)     ← one model for everything
+
+# Fresh vault: init research → ingest attention (1706.03762) + eagle (2409.15518)
+# → 6 seeded Q&A per paper in reading-*.md session files
+
 paper-agent summarize --space research --paper attention-is-all-you-need
-# → summary.md written, metadata.yaml has summarized_qa_count: 5
-paper-agent ask "one more question" --space research --paper attention-is-all-you-need
-# → new Q&A saved
-# → GET /api/spaces/research/papers shows summary_stale: true (6 Q&A vs 5 summarized)
+# → summary.md + summary.json {summarized_qa_count: 6, model: openai/gpt-5.6-luna, summarized_at}
+# → metadata.yaml: NO summary key (purely descriptive again)
+
+paper-agent synthesize --space research   (run twice, + once via API)
+# → 1 connection every run: Attention ↔ Eagle (builds_on / shares_method — same pair,
+#   same related verdict; only the label wording varies)
+# → no empty bail-outs; unrelated pairs would appear under "Judged Unrelated"
+
+# Streaming ask on luna (CLI + daemon SSE)
+paper-agent ask "what budget does it target?" --space research
+# → streamed markdown answer grounded in the active paper, saved to the reading session,
+#   exit 0, stderr clean (see the asyncgen teardown filter below)
+curl -N -X POST localhost:8765/api/spaces/research/ask …
+# → SSE tokens + session_path JSON, daemon log clean — no leaked generators per request
+
+# Selection-only ask (slug path) → minimax-bayes-rule-20260904.md with AI-generated slug
+
+# Staleness loop
+# append a 7th Q&A to the attention reading file →
+#   is_summary_stale → True · index.md shows "[summary](…) ⚠ stale"
+#   GET /api/spaces/research/papers → attention: stale=True, qa=7, summarized=6
+# POST /api/spaces/research/summarize {paper_id} (via API) →
+#   papers list → attention: stale=False, qa=7, summarized=7   ← fresh again
+
+# knowledge + open-questions still work off the new summary.json read path
+POST /knowledge       → ok, 5 themes, 9 key facts
+POST /open-questions  → ok, 9 questions
+
+# Legacy fallback (scratch vault with metadata.yaml-embedded summary)
+get_paper_summary → reads legacy summary, summarized_qa_count None
+is_summary_stale  → None (unknown, not false-stale)
+
+python3 -m compileall paper_agent   ✓
 ```
 
 ---

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <base href="/app/">
+  <title>Paper Agent</title>
+  <meta name="color-scheme" content="dark light">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+
+    <div id="daemon-banner" hidden>
+      <span>Daemon not reachable<span id="daemon-msg"></span> — is it running?&nbsp;<code>uv run paper-agent serve</code></span>
+      <button id="retry" type="button">Retry</button>
+    </div>
+
+    <div id="quote-box" hidden title="Click to expand the full selection">
+      <div id="quote-text"></div>
+      <div id="quote-meta" hidden></div>
+    </div>
+
+    <form id="composer" autocomplete="off">
+      <textarea id="question" rows="1" placeholder="What would you like to know?" autofocus></textarea>
+    </form>
+
+    <div id="control-row">
+      <label id="toggle-wrap">
+        <input type="checkbox" id="continue-toggle">
+        <span id="toggle-label">Fresh thread</span>
+      </label>
+      <span id="hint">&#8629; send &nbsp;&middot;&nbsp; &#8679;&#8629; newline</span>
+      <button id="paper-picker-btn" type="button" hidden>paper &#9662;</button>
+    </div>
+
+    <main id="transcript">
+      <div id="thread-header" hidden></div>
+      <div id="turns"></div>
+      <div id="streaming" hidden></div>
+    </main>
+
+  </div>
+
+  <div id="paper-menu" hidden></div>
+
+  <script src="marked.min.js"></script>
+  <script src="sse.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

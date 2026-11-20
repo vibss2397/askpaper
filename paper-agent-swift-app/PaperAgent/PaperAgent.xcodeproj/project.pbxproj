@@ -1,0 +1,238 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	objectVersion = 56;
+	classes = {
+	};
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000B001 /* PaperAgentApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000F001 /* PaperAgentApp.swift */; };
+		A10000000000000000000B002 /* AppCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000F002 /* AppCore.swift */; };
+		A10000000000000000000B003 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000F003 /* Panel.swift */; };
+		A10000000000000000000B004 /* PanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000F004 /* PanelController.swift */; };
+		A10000000000000000000B005 /* HealthCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000F005 /* HealthCheck.swift */; };
+		A10000000000000000000B006 /* HotkeyCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000F006 /* HotkeyCenter.swift */; };
+		A10000000000000000000B007 /* CaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000F007 /* CaptureService.swift */; };
+		A10000000000000000000B008 /* HandoffService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000F008 /* HandoffService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A10000000000000000000F001 /* PaperAgentApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperAgentApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000F002 /* AppCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCore.swift; sourceTree = "<group>"; };
+		A10000000000000000000F003 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panel.swift; sourceTree = "<group>"; };
+		A10000000000000000000F004 /* PanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelController.swift; sourceTree = "<group>"; };
+		A10000000000000000000F005 /* HealthCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthCheck.swift; sourceTree = "<group>"; };
+		A10000000000000000000F006 /* HotkeyCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyCenter.swift; sourceTree = "<group>"; };
+		A10000000000000000000F007 /* CaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureService.swift; sourceTree = "<group>"; };
+		A10000000000000000000F008 /* HandoffService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffService.swift; sourceTree = "<group>"; };
+		A10000000000000000000F009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A100000000000000000000P1 /* PaperAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PaperAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A100000000000000000000F1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A100000000000000000000G1 /* PaperAgent */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000F001 /* PaperAgentApp.swift */,
+				A10000000000000000000F002 /* AppCore.swift */,
+				A10000000000000000000F003 /* Panel.swift */,
+				A10000000000000000000F004 /* PanelController.swift */,
+				A10000000000000000000F005 /* HealthCheck.swift */,
+				A10000000000000000000F006 /* HotkeyCenter.swift */,
+				A10000000000000000000F007 /* CaptureService.swift */,
+				A10000000000000000000F008 /* HandoffService.swift */,
+				A10000000000000000000F009 /* Info.plist */,
+			);
+			path = PaperAgent;
+			sourceTree = "<group>";
+		};
+		A100000000000000000000A1 = {
+			isa = PBXGroup;
+			children = (
+				A100000000000000000000G1 /* PaperAgent */,
+				A100000000000000000000A2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A100000000000000000000A2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A100000000000000000000P1 /* PaperAgent.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A100000000000000000000T1 /* PaperAgent */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000CC01 /* Build configuration list for PBXNativeTarget "PaperAgent" */;
+			buildPhases = (
+				A100000000000000000000S1 /* Sources */,
+				A100000000000000000000F1 /* Frameworks */,
+				A100000000000000000000R1 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PaperAgent;
+			productName = PaperAgent;
+			productReference = A100000000000000000000P1 /* PaperAgent.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+			};
+			buildConfigurationList = A10000000000000000000PP01 /* Build configuration list for PBXProject "PaperAgent" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A100000000000000000000A1;
+			productRefGroup = A100000000000000000000A2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A100000000000000000000T1 /* PaperAgent */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A100000000000000000000R1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A100000000000000000000S1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000B001 /* PaperAgentApp.swift in Sources */,
+				A10000000000000000000B002 /* AppCore.swift in Sources */,
+				A10000000000000000000B003 /* Panel.swift in Sources */,
+				A10000000000000000000B004 /* PanelController.swift in Sources */,
+				A10000000000000000000B005 /* HealthCheck.swift in Sources */,
+				A10000000000000000000B006 /* HotkeyCenter.swift in Sources */,
+				A10000000000000000000B007 /* CaptureService.swift in Sources */,
+				A10000000000000000000B008 /* HandoffService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A10000000000000000000CC02 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PaperAgent/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vibhu.paperagent;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A10000000000000000000CC03 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PaperAgent/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vibhu.paperagent;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A10000000000000000000PP02 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		A10000000000000000000PP03 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000000000000000000CC01 /* Build configuration list for PBXNativeTarget "PaperAgent" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000CC02 /* Debug */,
+				A10000000000000000000CC03 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000PP01 /* Build configuration list for PBXProject "PaperAgent" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000PP02 /* Debug */,
+				A10000000000000000000PP03 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000000000000000000001 /* Project object */;
+}

@@ -1,6 +1,14 @@
-from ..llm import get_client, prompts
+from ..llm import get_structured_client, prompts
 from ..llm.base import LLMNotConfiguredError
-from ..vault import get_paper_metadata, get_vault_path, list_papers, list_spaces, SPACES_DIR
+from ..vault import (
+    get_paper_metadata,
+    get_paper_summary,
+    get_vault_path,
+    list_papers,
+    list_spaces,
+    regenerate_index,
+    SPACES_DIR,
+)
 from . import PaperAgentError
 
 
@@ -24,7 +32,7 @@ async def update_knowledge(space: str) -> dict | None:
         )
 
     try:
-        client = get_client()
+        client = get_structured_client()
     except LLMNotConfiguredError as e:
         raise PaperAgentError(str(e))
 
@@ -102,7 +110,7 @@ async def update_open_questions(space: str) -> dict | None:
         )
 
     try:
-        client = get_client()
+        client = get_structured_client()
     except LLMNotConfiguredError as e:
         raise PaperAgentError(str(e))
 
@@ -134,11 +142,11 @@ async def update_open_questions(space: str) -> dict | None:
 def _collect_summaries(space: str) -> list[dict]:
     summaries = []
     for paper_id in list_papers(space):
-        meta = get_paper_metadata(space, paper_id)
-        summary = meta.get("summary")
-        if not summary:
+        data = get_paper_summary(space, paper_id)
+        if not data:
             continue
-        summary["title"] = meta.get("title", paper_id)
+        summary = data["summary"]
+        summary["title"] = get_paper_metadata(space, paper_id).get("title", paper_id)
         summary["paper_id"] = paper_id
         summaries.append(summary)
     return summaries

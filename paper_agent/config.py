@@ -5,8 +5,7 @@ import yaml
 from dotenv import load_dotenv
 
 DEFAULT_VAULT_PATH = Path.home() / ".paper-vault"
-DEFAULT_MODEL = "google/gemini-3.7-flash"
-DEFAULT_PROVIDER = "gemini"
+DEFAULT_MODEL = "openai/gpt-5.6-luna"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
 CONFIG_DIR = ".paper-agent"
@@ -65,30 +64,22 @@ def ensure_config_exists() -> dict:
     return config
 
 
-def resolve_provider(model: str, cfg: dict) -> str:
-    """Explicit `provider` in config wins; otherwise infer from the model name."""
-    provider = cfg.get("provider")
-    if provider:
-        return str(provider)
+def _infer_provider(model: str) -> str:
     org = model.split("/", 1)[0] if "/" in model else ""
     if org == "google" or model.startswith("gemini"):
         return "gemini"
     return "openai"
 
 
-def get_llm_settings() -> dict:
-    """Resolve the active provider, model, API key, and base_url.
+def resolve_provider(model: str, cfg: dict) -> str:
+    """Explicit `provider` in config wins; otherwise infer from the model name."""
+    provider = cfg.get("provider")
+    if provider:
+        return str(provider)
+    return _infer_provider(model)
 
-    All traffic goes through OpenRouter (or any OpenAI-compatible
-    endpoint via `base_url`), authenticated with a single
-    OPENROUTER_API_KEY. Returns a dict with keys: provider, model,
-    api_key, base_url, key_env, key_error.
-    """
-    _load_env()
-    cfg = load_config()
-    model = cfg.get("model", DEFAULT_MODEL)
-    provider = resolve_provider(model, cfg)
 
+def _resolve_settings(cfg: dict, model: str, provider: str | None) -> dict:
     if provider == "gemini":
         from .llm.gemini import normalize_gemini_model
 
@@ -110,6 +101,44 @@ def get_llm_settings() -> dict:
         "key_env": API_KEY_ENV,
         "key_error": key_error,
     }
+
+
+def get_llm_settings() -> dict:
+    """Resolve the active provider, model, API key, and base_url.
+
+    All traffic goes through OpenRouter (or any OpenAI-compatible
+    endpoint via `base_url`), authenticated with a single
+    OPENROUTER_API_KEY. Returns a dict with keys: provider, model,
+    api_key, base_url, key_env, key_error, reasoning_effort.
+    """
+    _load_env()
+    cfg = load_config()
+    model = cfg.get("model", DEFAULT_MODEL)
+    provider = resolve_provider(model, cfg)
+    settings = _resolve_settings(cfg, model, provider)
+    settings["reasoning_effort"] = cfg.get("reasoning_effort")
+    return settings
+
+
+def get_structured_llm_settings() -> dict:
+    """Settings for structured (JSON) calls: summarize, synthesize, knowledge.
+
+    Uses `structured_model` from config.yaml when set (falling back to the
+    main `model`), plus an optional `structured_reasoning_effort`
+    (falling back to the main `reasoning_effort`). Determinism for these
+    tasks comes from forced per-item verdicts in the schemas plus a
+    reasoning model — not temperature.
+    Returns the same keys as get_llm_settings() plus `reasoning_effort`.
+    """
+    _load_env()
+    cfg = load_config()
+    model = cfg.get("structured_model") or cfg.get("model", DEFAULT_MODEL)
+    provider = cfg.get("structured_provider") or _infer_provider(model)
+    settings = _resolve_settings(cfg, model, provider)
+    settings["reasoning_effort"] = (
+        cfg.get("structured_reasoning_effort") or cfg.get("reasoning_effort")
+    )
+    return settings
 
 
 def get_api_key() -> str | None:

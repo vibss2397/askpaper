@@ -1,12 +1,14 @@
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
 from . import PaperAgentError
-from ..llm import get_client, prompts
+from ..llm import get_structured_client, prompts
 from ..llm.base import LLMNotConfiguredError
 from ..session import reader as session_reader
-from ..vault import get_paper_metadata, get_paper_path, list_spaces
+from ..vault import get_paper_metadata, get_paper_path, list_spaces, regenerate_index
 
 
 MIN_QA_FOR_SUMMARY = 5
@@ -34,7 +36,7 @@ async def summarize(space: str, paper_id: str) -> dict | None:
         )
 
     try:
-        client = get_client()
+        client = get_structured_client()
     except LLMNotConfiguredError as e:
         raise PaperAgentError(str(e))
 
@@ -56,12 +58,23 @@ async def summarize(space: str, paper_id: str) -> dict | None:
     summary_path = paper_dir / "summary.md"
     summary_path.write_text(markdown)
 
-    meta["summary"] = result
+    # Sidecar JSON is the single structured-storage convention (9.5.4):
+    # freshness metadata lives with the summary it describes (9.5.3).
+    summary_data = {
+        "summary": result,
+        "summarized_qa_count": len(qa_pairs),
+        "summarized_at": datetime.now(timezone.utc).isoformat(),
+        "model": client.model,
+    }
+    (paper_dir / "summary.json").write_text(json.dumps(summary_data, indent=2))
+
+    # metadata.yaml goes back to being purely descriptive — drop the
+    # legacy embedded summary if an older summarize wrote it there.
+    meta.pop("summary", None)
     meta_path = paper_dir / "metadata.yaml"
     with open(meta_path, "w") as f:
         yaml.dump(meta, f)
 
-    from ..vault import regenerate_index
     regenerate_index(space)
 
     return result

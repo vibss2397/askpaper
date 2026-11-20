@@ -37,7 +37,18 @@ def status():
     else:
         click.echo("spaces: (none)")
     click.echo(f"provider: {llm['provider']}")
-    click.echo(f"model: {llm['model']}")
+    if llm["reasoning_effort"]:
+        click.echo(f"model: {llm['model']} (reasoning: {llm['reasoning_effort']})")
+    else:
+        click.echo(f"model: {llm['model']}")
+    structured = config.get_structured_llm_settings()
+    if structured["model"] != llm["model"] or (
+        structured["reasoning_effort"] != llm["reasoning_effort"]
+    ):
+        effort = structured["reasoning_effort"] or "default"
+        click.echo(
+            f"structured model: {structured['model']} (reasoning: {effort})"
+        )
     if llm["base_url"]:
         click.echo(f"base_url: {llm['base_url']}")
     click.echo(f"API key ({llm['key_env']}): {'✓' if llm['api_key'] else '✗'}")
@@ -93,9 +104,35 @@ def ask(question: str, space: str, selected: str, source_app: str, source_title:
 @cli.command()
 @click.option("--port", default=daemon.DEFAULT_PORT, help="Port to listen on")
 @click.option("--reload", is_flag=True, help="Enable auto-reload on code changes")
-def serve(port: int, reload: bool):
-    """Start the paper-agent daemon."""
-    daemon.run(port=port, reload=reload)
+@click.option("--log-file", default=None, help="Also write logs to this rotated file (used by the LaunchAgent)")
+def serve(port: int, reload: bool, log_file: str | None):
+    """Start the paper-agent daemon. No-op if one is already running on the port."""
+    daemon.run(port=port, reload=reload, log_file=log_file)
+
+
+@cli.command(name="daemon-install")
+@click.option("--port", default=daemon.DEFAULT_PORT, help="Port the daemon listens on")
+def daemon_install(port: int):
+    """Install a LaunchAgent so the daemon starts at login and restarts on crash."""
+    daemon.install_launchagent(port)
+
+
+@cli.command(name="daemon-uninstall")
+def daemon_uninstall():
+    """Remove the daemon LaunchAgent."""
+    daemon.uninstall_launchagent()
+
+
+@cli.command(name="daemon-log")
+def daemon_log():
+    """Tail the daemon's rotated log file."""
+    log_file = daemon.LOG_DIR / "daemon.log"
+    if not log_file.exists():
+        raise click.ClickException(f"No daemon log yet at {log_file} — installed? (paper-agent daemon-install)")
+    import subprocess as _sp
+
+    click.echo(f"Tailing {log_file} (Ctrl-C to stop)")
+    _sp.run(["tail", "-F", str(log_file)])
 
 
 @cli.command()

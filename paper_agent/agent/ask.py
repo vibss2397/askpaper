@@ -155,12 +155,15 @@ async def ask(
 
     full_answer: list[str] = []
 
-    async for token in client.generate(
-        prompt=user_prompt,
-        system=system_prompt,
-    ):
-        full_answer.append(token)
-        yield token
+    try:
+        async for token in client.generate(
+            prompt=user_prompt,
+            system=system_prompt,
+        ):
+            full_answer.append(token)
+            yield token
+    finally:
+        await client.aclose()
 
     answer_text = "".join(full_answer)
     slug = await slug_task if slug_task else None

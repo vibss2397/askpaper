@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Paper Agent SSE probe</title></head>
+<body>
+<pre id="out">probing…</pre>
+<script>
+(async () => {
+  const t0 = performance.now();
+  const arrivals = [];
+  const diag = [];
+  let buf = "";
+  try {
+    const res = await fetch("/api/sse-probe", { cache: "no-store" });
+    diag.push("status=" + res.status + " body=" + (res.body ? "yes" : "null"));
+    if (!res.ok || !res.body) throw new Error("bad response: " + res.status);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    for (;;) {
+      const r = await reader.read();
+      if (r.done) { diag.push("done"); break; }
+      diag.push("chunk " + (r.value ? r.value.length : 0) + "b@" + Math.round(performance.now() - t0) + "ms");
+      buf += dec.decode(r.value, { stream: true }).replace(/\r\n/g, "\n");
+      const parts = buf.split("\n\n");
+      buf = parts.pop() || "";
+      for (const p of parts) {
+        for (const line of p.split("\n")) {
+          if (line.startsWith("data: ")) arrivals.push(Math.round(performance.now() - t0));
+        }
+      }
+    }
+  } catch (e) {
+    report("ERROR " + e.message + " | " + diag.join("; "));
+    return;
+  }
+  const gaps = arrivals.slice(1).map((t, i) => t - arrivals[i]);
+  const verdict = arrivals.length >= 8 && gaps.every((g) => g >= 120)
+    ? "STREAMING-OK"
+    : arrivals.length >= 8
+      ? "BUFFERED (gaps too small)"
+      : "INCOMPLETE (" + arrivals.length + " tokens)";
+  report(verdict + " arrivals=" + JSON.stringify(arrivals) + " gaps=" + JSON.stringify(gaps) + " | " + diag.slice(0, 4).join("; ") + (diag.length > 4 ? " …" : ""));
+})();
+
+function report(msg) {
+  document.getElementById("out").textContent = msg;
+  document.title = "PROBE-RESULT: " + msg;
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.probe) {
+    window.webkit.messageHandlers.probe.postMessage(msg);
+  }
+}
+</script>
+</body>
+</html>

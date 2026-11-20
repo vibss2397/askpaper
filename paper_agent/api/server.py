@@ -2,9 +2,13 @@ import json
 import logging
 import re
 import tempfile
+import time
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("paper-agent")
@@ -12,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from .. import config, vault, context
+from .. import config, vault, context, daemon
 from ..agent import PaperAgentError
 from ..agent.ask import ask as run_ask
 from ..agent.summarize import summarize as run_summarize
@@ -98,10 +102,11 @@ def list_spaces_api():
 async def ask_api(space_name: str, body: AskRequest):
     _verify_space(space_name)
 
+    # Redacted: question/selection text never logged (they land in plaintext logs).
     log.info(
-        "ASK space=%s question=%r selected_text=%r source_app=%r source_title=%r source_url=%r paper_id=%r",
-        space_name, body.question, body.selected_text,
-        body.source_app, body.source_title, body.source_url, body.paper_id,
+        "ASK space=%s question=%d chars selected_text=%d chars source_app=%r source_title=%d chars source_url=%d chars paper_id=%r fresh=%r",
+        space_name, len(body.question), len(body.selected_text),
+        body.source_app, len(body.source_title), len(body.source_url), body.paper_id, body.fresh,
     )
 
     llm = config.get_llm_settings()
@@ -213,6 +218,18 @@ def list_papers_api(space_name: str):
     papers = []
     for paper_id in vault.list_papers(space_name):
         meta = vault.get_paper_metadata(space_name, paper_id)
+        summary_data = vault.get_paper_summary(space_name, paper_id)
+        summarized_qa_count = summary_data.get("summarized_qa_count") if summary_data else None
+        qa_count = (
+            len(session_reader.get_qa_by_paper(space_name, paper_id))
+            if summary_data
+            else None
+        )
+        summary_stale = (
+            qa_count is not None
+            and summarized_qa_count is not None
+            and qa_count != summarized_qa_count
+        )
         papers.append({
             "paper_id": paper_id,
             "title": meta.get("title", ""),
@@ -221,6 +238,10 @@ def list_papers_api(space_name: str):
             "ingested_at": meta.get("ingested_at", ""),
             "page_count": meta.get("page_count"),
             "conversion_method": meta.get("conversion_method", ""),
+            "has_summary": summary_data is not None,
+            "summary_stale": summary_stale,
+            "qa_count": qa_count,
+            "summarized_qa_count": summarized_qa_count,
         })
     return papers
 
@@ -338,15 +359,82 @@ def resolve_api(body: ResolveRequest):
     }
 
 
+class CaptureRequest(BaseModel):
+    selected_text: str = ""
+    source_app: str = ""
+    source_title: str = ""
+    source_url: str = ""
+
+
+_CAPTURES: dict[str, tuple[float, dict]] = {}
+_CAPTURE_TTL = 120.0
+_CAPTURE_CAP = 20
+
+
+def _sweep_captures() -> None:
+    now = time.time()
+    for key in [k for k, (ts, _) in _CAPTURES.items() if now - ts > _CAPTURE_TTL]:
+        _CAPTURES.pop(key, None)
+
+
+@app.post("/api/capture")
+def post_capture(body: CaptureRequest):
+    """Message mailbox for the Swift panel handoff (migration plan §4.2).
+
+    Stores a capture in memory; the web page fetches it by id via
+    /app#capture=<id>. Not a source of truth — the vault remains the
+    conversation state.
+    """
+    _sweep_captures()
+    now = time.time()
+    capture_id = uuid.uuid4().hex[:12]
+    _CAPTURES[capture_id] = (now, body.model_dump())
+    while len(_CAPTURES) > _CAPTURE_CAP:
+        _CAPTURES.pop(next(iter(_CAPTURES)))
+    log.info("CAPTURE id=%s app=%r url=%r selected=%d chars", capture_id, body.source_app, body.source_url, len(body.selected_text))
+    return {"id": capture_id, "expires_at": now + _CAPTURE_TTL}
+
+
+@app.get("/api/capture/{capture_id}")
+def get_capture(capture_id: str):
+    _sweep_captures()
+    entry = _CAPTURES.get(capture_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Capture not found or expired")
+    ts, payload = entry
+    return {**payload, "age": round(time.time() - ts, 1)}
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.1.0"}
+    # Versioned + pid-stamped so a stale daemon is identifiable at a glance;
+    # api_key_present lets the UI distinguish "up but unconfigured" from down.
+    payload = daemon.health_payload()
+    payload["api_key_present"] = bool(config.get_llm_settings()["api_key"])
+    return payload
+
+
+@app.get("/api/sse-probe")
+async def sse_probe():
+    """Dev-only endpoint for the WKWebView streaming probe (migration plan §6.5).
+
+    Yields 10 SSE tokens 300 ms apart so a client can tell real streaming
+    (inter-arrival ≈ 300 ms) from buffered delivery (all at once at the end).
+    """
+    import asyncio
+
+    async def gen():
+        for i in range(10):
+            yield {"data": f"token-{i}"}
+            await asyncio.sleep(0.3)
+
+    return EventSourceResponse(gen())
 
 
 @app.post("/api/spaces/{space_name}/summarize")
 async def summarize_api(space_name: str, body: SummarizeRequest):
     _verify_space(space_name)
-    llm = config.get_llm_settings()
+    llm = config.get_structured_llm_settings()
     if not llm["api_key"]:
         raise HTTPException(status_code=503, detail=llm["key_error"])
 
@@ -374,7 +462,7 @@ async def summarize_api(space_name: str, body: SummarizeRequest):
 @app.post("/api/spaces/{space_name}/synthesize")
 async def synthesize_api(space_name: str):
     _verify_space(space_name)
-    llm = config.get_llm_settings()
+    llm = config.get_structured_llm_settings()
     if not llm["api_key"]:
         raise HTTPException(status_code=503, detail=llm["key_error"])
 
@@ -400,7 +488,7 @@ async def synthesize_api(space_name: str):
 @app.post("/api/spaces/{space_name}/knowledge")
 async def knowledge_api(space_name: str):
     _verify_space(space_name)
-    llm = config.get_llm_settings()
+    llm = config.get_structured_llm_settings()
     if not llm["api_key"]:
         raise HTTPException(status_code=503, detail=llm["key_error"])
 
@@ -424,7 +512,7 @@ async def knowledge_api(space_name: str):
 @app.post("/api/spaces/{space_name}/open-questions")
 async def open_questions_api(space_name: str):
     _verify_space(space_name)
-    llm = config.get_llm_settings()
+    llm = config.get_structured_llm_settings()
     if not llm["api_key"]:
         raise HTTPException(status_code=503, detail=llm["key_error"])
 
@@ -472,3 +560,20 @@ def delete_space_api(space_name: str, x_paper_agent_secret: str | None = Header(
         raise HTTPException(status_code=409, detail=str(e))
     log.info("DELETE space=%s", space_name)
     return {"status": "ok"}
+
+
+# ── Web app (migration plan §4.1) ──────────────────────────────────────────
+
+WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
+WEBAPP_DIR.mkdir(exist_ok=True)
+
+
+@app.api_route("/app", methods=["GET", "HEAD"])
+def webapp_index():
+    index = WEBAPP_DIR / "index.html"
+    if not index.exists():
+        raise HTTPException(status_code=404, detail="webapp index.html not found")
+    return FileResponse(index, media_type="text/html")
+
+
+app.mount("/app", StaticFiles(directory=WEBAPP_DIR, html=True), name="webapp")

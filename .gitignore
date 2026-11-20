@@ -19,9 +19,8 @@ venv/
 .coverage
 htmlcov/
 
-# Node / Raycast extension
+# Node
 node_modules/
-raycast-extensions/*/dist/
 *.tsbuildinfo
 npm-debug.log*
 

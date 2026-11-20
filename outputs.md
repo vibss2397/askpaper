@@ -8,12 +8,13 @@
 | 2 — Ask (No PDF) | ✅ Done | CLI `paper-agent ask` streams Gemini answers with selected-text context |
 | 3 — Session Persistence | ✅ Done | Q&A auto-saved to dated session files, `index.md`, context tracking |
 | 4 — Daemon API (HTTP + SSE) | ✅ Done | FastAPI server, 7 endpoints, CORS, SSE streaming |
-| 5 — Raycast Hotkey | ✅ Done | Select text → hotkey → space → question → streamed answer → auto-saved |
+| 5 — Raycast Hotkey | ✅ Done → retired | Retired at the Phase 6 cutover: extension deleted from the repo and from the Raycast app; the Swift panel app (5R) is the primary and only UI |
+| 5R — UI Rewrite: Swift Panel App | ✅ Cutover done | Native menu-bar panel app (default ⌃A, ⌘⇧P available post-Raycast) with full Raycast ask-flow parity: OS capture ladder, web page in a vibrancy WKWebView, streaming answers. Phase 6 cutover complete: Raycast extension deleted (rollback = restore from git history). See "Swift Panel App Migration" section below |
 | 6 — PDF Ingestion | ✅ Done | PDF/HTML ingestion, auto-ingest in ask, paper-aware answers, Raycast paper picker |
 | 7 — Summaries + Knowledge | ✅ Done | Paper summaries, `knowledge.md`, `open-questions.md`, cross-paper synthesis, enhanced `index.md` |
 | 8 — Search | ⏸️ Deferred to last | Obsidian covers find; no consumer needs a search index yet |
 | 9 — Desktop Polish | 🟡 Partial | 9.4 loop mode + 9.5 continuity + 9.7 LLM provider abstraction done (reading threads, section-based follow-ups, chat-style Raycast UI, any-model-via-OpenRouter); remaining: 9.1 prompt tuning, 9.6 space control plane; 9.2 dropped, 9.3 covered |
-| 9.5 — Summary Polish | ❌ Not started | Temperature=0, synthesize retry, staleness tracking, JSON storage consistency |
+| 9.5 — Summary Polish | ✅ Done | One-vs-rest forced-verdict synthesize (no empty bail-outs), all calls on gpt-5.6-luna @ low reasoning, summary.json sidecar + staleness tracking everywhere |
 | 10 — Multimodal Asks | ❌ Not started | Screenshot → Gemini Vision, diagram/chart/equation asks |
 | 11 — MCP Adapter | ❌ Not started | Claude Desktop / Claude Code integration |
 | 12 — WhatsApp Bridge | ❌ Not started | WhatsApp → daemon relay |
@@ -30,7 +31,213 @@
 
 **Reading-thread loop (Phase 9):** select text → hotkey → informed composer (●/○ thread status + history + quote) → reply → streamed answer → appended to `reading-{paper}.md`.
 
-**Next up:** Phase 9.5 — Summary Polish (temperature=0, synthesize retry, staleness tracking), then remaining Phase 9 items (9.1 prompt tuning, 9.6 space control plane), then Phase 10 multimodal. Phase 8 (Search) stays deferred to last — Obsidian already covers human-facing search, and no part of the system needs a search index yet.
+**Next up (agreed order):** ~~1–5~~ DONE (key replaced; Safari selection capture enabled; Zen decision dropped — the AX title/arXiv-ID fallback + allowlisted ⌘C cover it; Phase 5 polish trimmed to what shipped: hotkey presets, full-fidelity clipboard restore, turn cards, load-retry — launch-at-login, app icon, daemonUrl UI, window growth consciously skipped; Phase 6 cutover executed: ⌘⇧P on Swift, Raycast extension deleted from repo + Raycast app, docs updated). Remaining: 6) 9.1 prompt tuning + 9.6 space control plane (needs a web-page redesign, not Raycast); 7) Phases 10–14. Phase 8 (Search) stays deferred to last — Obsidian already covers human-facing search, and no part of the system needs a search index yet.
+
+---
+
+# Swift Panel App Migration — Results (Phases 0–4, Raycast → native panel UI)
+
+Tracking doc: **`paper-agent-swift-app/migration_plan.md`** — the single source of truth for the migration (read it top to bottom before touching Swift code). Status: **Phases 0–6 COMPLETE — cutover executed.** The Raycast extension was deleted from the repo and removed from the Raycast app at cutover (rollback = restore from git history and rebind). The Swift app's hotkey default stays **⌃A** (user preference; ⌘⇧P remains selectable in the Hotkey menu). Post-cutover hardening that shipped with the cutover: redacted ASK logging (lengths only), sanitizer scheme-check hardening, page-driven Escape (picker-first, then panel hide), native load-retry after a failed preload, full-fidelity clipboard snapshot/restore with changeCount detection, ⌘C fallback allowlisted to browser/PDF apps, AppleScript 3 s timeout, hotkey debounce, turn-card transcript styling.
+
+## What was built
+
+```
+paper_agent/api/server.py     # +GET/HEAD /app → paper_agent/webapp/index.html + StaticFiles mount at /app
+                              # +POST /api/capture + GET /api/capture/{id} — in-memory capture mailbox
+                              #   (cap 20, TTL 120 s, sweep-on-access; NOT a source of truth — vault is)
+                              # +GET /api/sse-probe — dev-only dummy SSE endpoint (10 tokens, 300 ms apart)
+                              # ASK log line now includes fresh= (body-field verification)
+paper_agent/webapp/           # NEW — the environment-agnostic page (browser tab / PWA / panel WKWebView):
+  index.html                  # quote, composer (Enter=send, ⇧Enter=newline), continue/fresh toggle with
+                              #   live resolve preview, streaming transcript, paper override picker,
+                              #   daemon-down banner with 5 s recovery polling; <base href="/app/"> fixes
+                              #   relative assets at the slashless /app URL
+  styles.css                  # Spotlight-style, dark-first, translucent (composites over NSVisualEffectView);
+                              #   global [hidden]{display:none !important} guard (bug fix — see Key decisions)
+  app.js                      # state model per §5.4; #capture=<id> hydration (+hashchange); SSE ask flow
+                              #   (cross-space retarget, ingest banners, saved-to-vault footer, copy button,
+                              #   error states); page-state logging (INIT/RESOLVE-OK/MARK-DAEMON-DOWN/RECOVERED)
+  sse.js                      # ask.tsx SSE parser port — chunk-split, \r\n normalization, multi data-line
+                              #   join, [ERROR]-gated error detail; DOM-free, unit-tested with bun (12/12)
+  marked.min.js               # vendored markdown renderer + DOM sanitizer (script/on* strip)
+  manifest.json, sw.js, icon.svg   # optional PWA (network-first shell so dev iterations never go stale; API never cached)
+  probe.html                  # §6.5 WKWebView streaming-probe page (inter-token timing verdict)
+paper-agent-swift-app/PaperAgent/
+  PaperAgent.xcodeproj        # handwritten pbxproj; ad-hoc signed, LSUIElement (no Dock icon),
+                              #   NSAppTransportSecurity → NSAllowsLocalNetworking
+  build.sh                    # builds PaperAgent.app via CLT swiftc — NO Xcode license needed; the xcodeproj
+                              #   remains for the Xcode GUI path (needs sudo xcodebuild -license + xcode-select)
+  PaperAgent/
+    PaperAgentApp.swift       # @main SwiftUI; MenuBarExtra (Open Panel / New Thread / conditional
+                              #   "Grant Accessibility…" + "Allow … Automation…" / daemon status / Quit);
+                              #   icon = filled circle (daemon up) / outline (down)
+    AppCore.swift             # wiring; daemonUrl from UserDefaults; capture→handoff→show pipeline — capture
+                              #   runs BEFORE orderFrontRegardless (Chrome PDF selection survives focus loss);
+                              #   daemon-down → panel still shows (page renders its own recovery state);
+                              #   lifetime ProcessInfo beginActivity assertion (anti-App-Nap — do not remove)
+    PanelController.swift     # persistent NSPanel + persistent WKWebView (D5: transcript survives hide/show;
+                              #   hide = orderOut only, never destroy); vibrancy .hudWindow behind transparent
+                              #   web view; 560×640, top-center of the mouse's screen (15 % margin, repositioned
+                              #   every show); nonPersistent data store (never serves a stale cached page);
+                              #   page console piping to stdout; Escape local monitor + click-outside global
+                              #   monitor + resignKey → orderOut
+    Panel.swift               # KeyablePanel — borderless + nonactivating, canBecomeKey (WKWebView typing)
+    HealthCheck.swift         # GET /api/health every 15 s (drives the menu icon); blocking isUp() for the
+                              #   hotkey path (down → skip capture, show panel immediately)
+    HotkeyCenter.swift        # Carbon RegisterEventHotKey, ⌘⌃⇧A (kVK_ANSI_A, cmd|ctrl|shift) via
+                              #   GetApplicationEventTarget; registration result checked + logged (§7.2);
+                              #   toggle semantics: hide if shown+key, else capture→show
+    CaptureService.swift      # capture.ts ladder port: frontmost app → AX kAXSelectedTextAttribute (silent
+                              #   fail → next) → Chrome/Safari URL+title AppleScript (verbatim, battle-tested
+                              #   scripts) → browser JS selection → clipboard fallback (⌘C via System Events to
+                              #   the browser process WITHOUT activating it; Chrome 0.3 s + 0.5 s retry, Safari
+                              #   single attempt); errAEEventNotPermitted (-1743) → surfaced as menu hint
+    HandoffService.swift      # POST /api/capture → {id} → panel loads /app#capture=<id> (full reload per plan)
+  probe/probe.swift           # §6.5 streaming probe app (verdict via WKScriptMessage)
+  probe/probe2.swift          # capture-flow probe: loads the real page with console piping + banner visibility check
+```
+
+## Key decisions
+
+- **WKWebView SSE streaming verified working (§6.5 risk gate resolved — no bridge needed).** Probe measured fetch + ReadableStream delivering tokens at ~300 ms gaps matching server pacing exactly. Two probe gotchas recorded in the migration plan: WKWebView caches aggressively (cache-bust probe URLs with a query param) and the daemon sends `\r\n\r\n` event separators (normalize before splitting on `\n\n` — `sse.js` does).
+- **Capture handoff via the `/api/capture` mailbox (D4)** — not `evaluateJavaScript` injection — so the page stays browser-tab/PWA-testable and was built and verified entirely in Chrome before any Swift existed (the plan's layering rule).
+- **App Nap was real and silent:** an LSUIElement app whose panel is ordered out gets napped — timers/network suspend, page fetches fail and get misread as "daemon not reachable", and recovery polls fire in coalesced bursts. Fixed with a lifetime `ProcessInfo.beginActivity(.userInitiatedAllowingIdleSystemSleep)` assertion. Verified: health polls resumed exact 15 s cadence.
+- **The persistent "Daemon not reachable" banner was a CSS bug, not a daemon problem:** `#daemon-banner`'s `display: flex` overrode the HTML `hidden` attribute's UA `display: none` (author CSS wins), so the banner rendered unconditionally on every page load while the daemon was healthy and no errors ever logged. Fixed with the global `[hidden] { display: none !important }` guard; verified programmatically (probe2 reads computed visibility).
+- **Error attribution discipline:** `renderAll()` originally sat inside `refreshResolve`'s try/catch — any DOM throw would have been misreported as "daemon down". Rendering now happens outside network try/catch; the daemon-down banner carries the actual error reason in parentheses.
+- **Instrumentation built in:** page `console.*` + uncaught errors pipe to the app's stdout; stdout unbuffered (`setvbuf`) so terminal-redirected logs are live; the page logs every state transition. App log: `/tmp/paperagent-app.log` when launched from a terminal; daemon log: whatever `serve` was redirected to.
+- **Hotkey ⌘⌃⇧A is the user-chosen throwaway** (Raycast owns ⌘⇧P until cutover); Carbon registration failures are logged because collisions fail silently on macOS.
+- **Swift builds via `build.sh` + CommandLineTools `swiftc`** — sidesteps the Xcode license entirely; `DEVELOPER_DIR=…` prefixes any `xcodebuild` use until `sudo xcode-select -s /Applications/Xcode.app` is run.
+
+## Verified
+
+```
+# Phase 1 (§4.4): /api/health ok · /app 200 text/html · POST/GET /api/capture round-trip ·
+#   404 on unknown/expired · TTL sweep + 20-cap in-process tests · compileall clean
+# Phase 2 (§5.6): 12/12 SSE parser bun tests (chunk splits, \r\n, multi data-line, sentinel gating,
+#   keepalives) · real end-to-end ask stream parsed (resolved→thread→tokens→[DONE]→session_path) ·
+#   all resolve states (continuing/fresh/new_paper/no_paper) · all assets 200
+# Phase 3 (§6.5): probe STREAMING-OK — 10 tokens, gaps [263,302,301,301,…]
+# Phase 4: banner computed visibility = none with daemon healthy · App Nap defeated (2 polls/32 s) ·
+#   page console pipe + state logging live
+# LIVE user test (Safari): CAPTURE app=Safari url=arxiv.org/pdf/2601.18795 selected=0 → resolve said
+#   fresh/new_paper (correct — no Eagle pollution) → ask auto-downloaded + ingested "Reuse your FLOPs"
+#   into the vault → only failure was the expired OpenRouter key (401, page showed it inline)
+```
+
+## Immediate next steps (agreed order)
+
+1. **`.env` — expired OpenRouter key (user action; agents never touch `.env`):** create a new key at openrouter.ai/settings/keys, replace `OPENROUTER_API_KEY`, restart the daemon from the repo root. The "Reuse your FLOPs" paper is already ingested, so the next ask on it will be instant.
+2. **Safari selection capture:** enable Safari → Settings → Advanced → *Show features for web developers* → Develop menu → **Allow JavaScript from Apple Events** (or approve the System Events TCC prompt for the ⌘C fallback). Until then: URL capture works (right paper, right thread state) but no quoted selection and section-matching falls back to the same-paper continue rule.
+3. **Zen support decision:** Zen (user's daily browser, Firefox-based) has **no tab AppleScript** — URL capture is impossible via the script ladder; probes confirmed only `count windows` + window name work (name contains the paper title and, for arXiv PDFs, the arXiv ID). Options: (a) extend the ladder with a window-title → arXiv-ID → abs-URL heuristic + generalized clipboard fallback (⌘C to any frontmost process), or (b) keep Safari/Chrome for paper reading. Decide after a day of dogfooding.
+4. **Swift Phase 5 polish (trimmable, by feel):** window grows with transcript content; clipboard save/restore around the ⌘C fallback (it currently clobbers the clipboard — known, accepted until now); launch-at-login (SMAppService); app icon; settings surface (hotkey configurability, daemonUrl UI); long-quote clamp polish (basic CSS clamp already in).
+5. **Swift Phase 6 cutover:** remove Raycast's ⌘⇧P binding → Swift app takes **⌘⇧P**; launch-at-login ON; one week of zero-Raycast dogfood (rollback = rebind Raycast, instant; extension code stays in-repo); update `AGENTS.md` + `outputs.md` architecture notes (this section partially does that already).
+6. **Then 9.1 prompt tuning** (design notes in phase-plan.md) **and 9.6 space control plane** — its design notes target Raycast (`spaces.tsx` + `POST /api/spaces`, still unbuilt) and need a web-page redesign instead.
+7. **Then Phases 10–14** (multimodal — via the 9.7 OpenRouter transport as an optional `LLMClient` capability, NOT the deleted Gemini Vision path; MCP adapter; WhatsApp bridge; iPad; voice). Phase 8 (search) stays deferred.
+
+---
+
+# Phase 9.5 Results — Summary + Synthesis Polish
+
+## What was built
+
+```
+paper_agent/
+  llm/
+    base.py               # +reasoning_effort param → OpenRouter extra_body
+                          #   {"reasoning": {"enabled": true, "effort": ...}} on every
+                          #   completions call (generate + generate_structured, both branches)
+                          #   +aclose() — explicit client close
+                          #   +install_asyncgen_teardown_filter() — loop exception handler
+                          #   that downgrades the root-caused httpcore2 asyncgen finalization
+                          #   noise (see Key decisions); auto-installed by LLMClient.__init__
+    __init__.py           # +get_structured_client() factory; shared _build_client()
+    prompts.py            # SYNTHESIS_SCHEMA / build_synthesize_prompt REPLACED by
+                          #   SYNTHESIS_VERDICTS_SCHEMA + build_synthesize_pairwise_prompt()
+                          #   (forced per-pair verdicts, "unrelated" is an explicit value) +
+                          #   OVERALL_SYNTHESIS_SCHEMA + build_overall_synthesis_prompt()
+  config.py               # +get_structured_llm_settings() — structured_model /
+                          #   structured_provider / structured_reasoning_effort config.yaml
+                          #   keys (all fall back to main model / reasoning_effort);
+                          #   get_llm_settings() also returns reasoning_effort;
+                          #   DEFAULT_MODEL = openai/gpt-5.6-luna
+  agent/
+    synthesize.py         # REWRITE: one-vs-rest — paper i vs papers i+1..N in ONE call each
+                          #   (every pair judged exactly once, N-1 calls). Forced verdict per
+                          #   other paper: {other_paper, related, relationship, insight};
+                          #   emptiness impossible by construction. Matched by title; missing
+                          #   verdict → 1 retry → PaperAgentError. overall_synthesis from a
+                          #   final call over confirmed connections (short-circuits to an
+                          #   honest canned string when 0 connections). synthesis.json:
+                          #   {connections, unrelated, overall_synthesis}. cross-paper-insights.md
+                          #   gains a "Judged Unrelated" section. Uses structured client.
+    summarize.py          # +summary.json sidecar {summary, summarized_qa_count, summarized_at,
+                          #   model}; metadata.yaml purely descriptive again (legacy `summary`
+                          #   key popped on re-summarize). Uses structured client.
+    knowledge.py          # summaries read via vault.get_paper_summary() (sidecar + legacy
+                          #   fallback); structured client for both update_knowledge() and
+                          #   update_open_questions()
+    ask.py                # closes the LLM client after streaming (finally: aclose());
+                          #   session/writer.py _generate_slug closes its client too
+  vault.py                # +get_paper_summary() — summary.json sidecar, falls back to legacy
+                          #   metadata.yaml `summary` (freshness None); +is_summary_stale() →
+                          #   bool | None; regenerate_index marks stale summaries "⚠ stale"
+  api/server.py           # papers list + has_summary / summary_stale / qa_count /
+                          #   summarized_qa_count; the 4 knowledge endpoints' key-check uses
+                          #   structured settings
+  cli.py                  # status: "structured model: … (reasoning: …)" when configured
+~/.paper-vault/.paper-agent/config.yaml
+                          # model: openai/gpt-5.6-luna, reasoning_effort: low — ONE model
+                          # for everything (structured_* keys supported but unused)
+```
+
+## Key decisions
+
+- **No temperature=0 (9.5.1, revised):** determinism comes from forced-verdict schemas + a reasoning model, not sampling knobs. Structured calls (summarize/synthesize/knowledge/open-questions) route to a dedicated structured client configured via config.yaml, falling back to the main model. After verification the split was collapsed: **everything (streaming ask included) runs `openai/gpt-5.6-luna` at `reasoning: low`** — vault config is just `model` + `reasoning_effort`, and `DEFAULT_MODEL` is luna. The `structured_*` keys remain supported for a future split.
+- **One-vs-rest forced verdicts, not retry-union (9.5.2, redesigned):** the old open-ended "find connections; empty array is valid" prompt let the model lazily bail. Retry+union was rejected as a band-aid (deterministic sampling makes retries pointless; it can't distinguish a real negative from a bail). Instead each paper runs against all remaining papers in ONE call and the schema forces a verdict for EVERY other paper — `related: bool` + relationship (`unrelated` is an explicit enum value) + insight. Every pair judged exactly once; "no connections" is now a verified negative, rendered under "Judged Unrelated". One retry remains only for malformed JSON.
+- **Freshness lives with the summary (9.5.3):** `summary.json` records `summarized_qa_count` + `summarized_at` + model. Staleness (current `get_qa_by_paper()` count ≠ summarized count) surfaces as `summary_stale` in the papers API, "⚠ stale" in `index.md`, and `is_summary_stale()` for future consumers. Legacy summaries report None (unknown), not false-stale.
+- **Sidecar .json everywhere (9.5.4):** `papers/{slug}/summary.json` + `summaries/synthesis.json` are THE structured storage; `metadata.yaml` is purely descriptive. Readers fall back to the legacy metadata.yaml `summary` key so pre-9.5.4 vaults keep working; re-summarizing migrates automatically.
+- **API contract unchanged:** synthesize still returns `{status, connections, markdown}` (0 connections now = `ok`, not `skipped`); Raycast needed no changes.
+- **9.5.5 (summary-previous.md) skipped** — regenerable artifact, low value.
+- **Asyncgen teardown noise — root-caused and filtered.** Streaming asks printed `RuntimeError: generator didn't stop after athrow()` tracebacks at generator finalization. Minimal repro + live-generator inventory showed openai 3.8's SSE loop `break`s on `[DONE]` without exhausting httpcore2's response-body generator chain — ~10 orphaned suspended generators (openai → httpx2 → httpcore2). GC later athrows GeneratorExit into them and httpcore2's `except BaseException: await self.aclose(); raise exc` pattern fails the asyncgen close protocol. **No leak** — openai's `finally: await response.aclose()` already released the connection; the daemon accumulates nothing per request. `LLMClient.__init__` installs a loop exception handler matching exactly this RuntimeError and logging it at debug; everything else delegates to the previous/default handler. Upstream-worthy; revisit when openai/httpcore2 fix the interaction.
+
+## Verified
+
+```
+paper-agent status
+# → provider: openai · model: openai/gpt-5.6-luna (reasoning: low)
+
+# Fresh vault: init research → ingest attention + eagle → 6 seeded Q&A each
+paper-agent summarize (both papers)
+# → summary.json {summarized_qa_count: 6, model: openai/gpt-5.6-luna}; metadata.yaml clean
+
+paper-agent synthesize --space research    (×2 CLI + ×1 API)
+# → 1 connection every run, same pair (Attention ↔ Eagle), no empty bail-outs
+# → relationship label varies (builds_on vs shares_method) — verdict stable, wording not
+
+# Streaming ask on luna (CLI + daemon SSE) — the unified-model change
+paper-agent ask "what budget does it target?" --space research
+# → streamed markdown answer grounded in the active paper, saved, exit 0, stderr clean
+#   (the httpcore2 asyncgen teardown noise is root-caused + filtered — see Key decisions)
+# selection-only ask → AI slug path works (minimax-bayes-rule-20260904.md)
+
+# Staleness loop
+# + 1 Q&A on attention → is_summary_stale True · index.md "⚠ stale" · papers API stale=True (7 vs 6)
+# POST summarize via API → papers API stale=False (7 vs 7)
+
+POST /knowledge → ok (5 themes, 9 facts) · POST /open-questions → ok (9 questions)
+
+# Legacy fallback (scratch vault, metadata.yaml-embedded summary)
+# get_paper_summary reads it; is_summary_stale → None (unknown)
+
+python3 -m compileall paper_agent   ✓
+```
+
+## Notes for next phase
+
+- Remaining Phase 9: 9.1 prompt tuning, 9.6 space control plane (`spaces.tsx` + `POST /api/spaces`)
+- The research vault was rebuilt fresh for this verification (the old one no longer existed): 2 papers, seeded Q&A, real summaries + synthesis — a usable starting state
+- Raycast `end-paper.tsx` papers list could surface `summary_stale` in a future pass (fields are already in the API)
+- Daemon restart still required after this rewrite (`lsof -nP -iTCP:8765`)
 
 ---
 
@@ -218,9 +425,9 @@ npx tsc --noEmit    ✓ 0 errors
 npm run build       ✓ 4 entry points compiled
 ```
 
-## Notes for next phase (Phase 9.5 + remaining Phase 9)
+## Notes for next phase (remaining Phase 9)
 
-- **Naming collision warning:** Phase 9.5 the PHASE = "Summary + Synthesis Polish" (temperature=0, synthesize retry, staleness tracking, JSON storage consistency) — still NOT started. Idea 9.5 inside Phase 9 = "Conversation continuity" — DONE this session. Don't conflate the two.
+- Phase 9.5 (Summary + Synthesis Polish) is DONE — see the Phase 9.5 Results section above.
 - Remaining Phase 9: 9.1 prompt tuning (design notes in phase-plan.md), 9.6 space control plane (`spaces.tsx` doesn't exist; `POST /api/spaces` not built). 9.2 dropped (space follows paper — only a brand-new topic space needs the terminal, which is rare and deliberate); 9.3 covered (session-history command + ⌘H thread view; Obsidian for long-form).
 - **Daemon cwd requirement:** the daemon must be started from the project root — it discovers `.env` (now `OPENROUTER_API_KEY`; was `GEMINI_API_KEY` before 9.7) via cwd (python-dotenv); started elsewhere it returns "OPENROUTER_API_KEY is not set. Add it to your .env file.".
 - **Stale-daemon lesson:** a 9-day-old daemon was silently serving old code on port 8765 (masked by a failed redirect) and caused confusing verification results until killed. Check `lsof -nP -iTCP:8765` when behavior seems stale.

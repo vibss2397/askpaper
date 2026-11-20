@@ -55,8 +55,11 @@ async def _generate_slug(
 
     try:
         result = []
-        async for token in client.generate(prompt=prompt, system=None):
-            result.append(token)
+        try:
+            async for token in client.generate(prompt=prompt, system=None):
+                result.append(token)
+        finally:
+            await client.aclose()
         slug = "".join(result).strip().strip('"').strip("'").lower()
         slug = _slugify(slug)
         if slug and len(slug.split("-")) >= 1:
